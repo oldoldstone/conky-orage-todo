@@ -3,20 +3,20 @@ oragefile='/tmp/orage.txt'
 todo='/tmp/todo.txt'
 orage -e $oragefile >/dev/null 2>/dev/null
 sed -i ""s/\r//"" $oragefile
-summary=($(awk -F: '/SUMMARY:/ {print $2}' $oragefile))
-loc=($(awk -F: '/LOCATION:/ {print $2}' $oragefile))
+ind=0;
+eval $(awk -v ind="$ind" -F':' '/SUMMARY:/ {print "summary["ind"]=\x27"substr($2, 0,length($2)-1)"\x27";ind++}' $oragefile)
+loc=($(awk -F':' '/LOCATION:/ {print $2}' $oragefile))
 dts=($(awk -F';' '/DTSTART/ {print}' $oragefile))
 cat /dev/null >$todo #clear todo file
-for(( i=0;i<${#summary[@]};i++)) do
-  n=`expr $i + 1`
+len=${#dts[@]} 
+for(( i=0;i<"$len";i++)) do 
   time=`echo ${dts[i]} |awk -F: '{print $2}'`
   date_event=${time:0:8}
   epoch_event=`date -d "$date_event" +%s`
   today=`date +%Y%m%d`
   epoch_now=`date  -d "$today"  +%s`
   #calculate the hour intervals between today and event date
-  hourintervals=$((($epoch_event - $epoch_now)/86400))
-  #echo $hourDiff $date_event $time
+  hourintervals=$((($epoch_event - $epoch_now)/86400)) 
   if [ $hourintervals -lt 0 ] #expire
   then
     continue

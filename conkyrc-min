@@ -1,0 +1,16 @@
+conky.config = {
+  background = false,
+  use_xft = true,
+  own_window_class = 'Conky',
+	own_window = true,
+	own_window_type = 'desktop',
+	own_window_argb_visual = true,
+	own_window_argb_value = 80,
+	own_window_transparent = false,
+  minimum_width = 380,
+  alignment = 'top_right',
+}
+
+conky.text = [[
+${font 微软雅黑:bold:size=14}${execpi 600 $HOME/.conky/bin/orage-todo}${font}
+]]
