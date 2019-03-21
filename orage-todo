@@ -1,46 +1,144 @@
 #!/bin/bash
-oragefile='/tmp/orage.txt'
-todo='/tmp/todo.txt'
-orage -e $oragefile >/dev/null 2>/dev/null
-sed -i ""s/\r//"" $oragefile
-ind=0;
-eval $(awk -v ind="$ind" -F':' '/SUMMARY:/ {print "summary["ind"]=\x27"substr($2, 0,length($2)-1)"\x27";ind++}' $oragefile)
-loc=($(awk -F':' '/LOCATION:/ {print $2}' $oragefile))
-dts=($(awk -F';' '/DTSTART/ {print}' $oragefile))
-cat /dev/null >$todo #clear todo file
-len=${#dts[@]} 
-for(( i=0;i<"$len";i++)) do 
-  time=`echo ${dts[i]} |awk -F: '{print $2}'`
-  date_event=${time:0:8}
-  epoch_event=`date -d "$date_event" +%s`
-  today=`date +%Y%m%d`
-  epoch_now=`date  -d "$today"  +%s`
-  #calculate the hour intervals between today and event date
-  hourintervals=$((($epoch_event - $epoch_now)/86400)) 
-  if [ $hourintervals -lt 0 ] #expire
-  then
-    continue
-  elif [ $hourintervals -eq 0 ]
-  then
-    date="Today "
-  elif [ $hourintervals -eq 1 ]
-  then
-    date="Tomorrow "
+#
+# Print the upcoming events of orage in three days.
+declare -A WEEKDIC
+WEEKDIC=([MO]=1 [TU]=2 [WE]=3 [TH]=4 [FR]=5 [SA]=6 [SU]=0 )
+ORAGE_FILE='/tmp/orage.txt'
+TODO_FILE='/tmp/todo.txt'
+NOW=$(date "+%Y-%m-%d %H:%M:%S")
+TODAY=$(date +%Y-%m-%d)
+WEEKNUMBER_NOW=$(date  +%w)
+function getdatediff()
+{
+  local startdate=$(date -d "$1" +%Y-%m-%dT%H:%M:%S)
+  local finaldate=$(date -d "$2" +%Y-%m-%dT%H:%M:%S)
+  case $3 in
+    miniute)
+      minutediff=$(datediff  $startdate $finaldate -f "%M");;
+    day)
+      daydiff=$(datediff  $startdate $finaldate -f "%d");;
+    week)
+      weekdiff=$(datediff  $startdate $finaldate -f "%w");;
+    month)
+      monthdiff=$(datediff  $startdate $finaldate -f "%m");;
+    year)
+      yeardiff=$(datediff  $startdate $finaldate -f "%y");;
+  esac
+}
+function get_orage_time()
+{
+  local time=$1
+  orage_time=${time:11:2}":"${time:13:2}
+}
+function print_datestr()
+{
+  getdatediff $TODAY $1 day
+  if [ $daydiff -lt 0 ];then
+    return
+  elif [ $daydiff -eq 0 ];then
+    datestr="今日"
+  elif [ $daydiff -eq 1 ];  then
+    datestr="明日"
   else
-    year=${time:0:4}
-    month=${time:4:2}
-    day=${time:6:2}
-    date=$month'-'$day
+    datestr="后日"
   fi
-  if [[ ${dts[i]} == *'DATE'* ]]
-  then #allday event
-    date=$date
-  else
-    hour=${time:9:2}
-    min=${time:11:2}
-    date=$date$hour':'$min
-  fi
-  echo $hourintervals'@_@'$date':'${summary[i]}| tr -d '\r'>>$todo
-done;
-sort -n $todo -o $todo #sort events by hour intervals
-awk -F@_@ '{print $2}' $todo|head -n 5
+}
+function get_cycle_date()
+{
+  local summary=$1
+  freq=$(echo $rrule|grep -Eo 'FREQ=[0-Z]*'|sed 's/FREQ=//g')
+  until=$(echo $rrule|grep -Eo 'UNTIL=[0-Z]*'|sed 's/UNTIL=//g')
+  byday=$(echo $rrule|grep -Eo 'BYDAY=[0-Z,]*'|sed 's/BYDAY=//g')
+  count=$(echo $rrule|grep -Eo 'COUNT=[0-Z]*'|sed 's/COUNT=//g')
+  interval=$(echo $rrule|grep -Eo 'INTERVAL=[0-Z]*'|sed 's/INTERVAL=//g')
+  case $freq in
+    WEEKLY)
+      if [ -n "$byday" ]; then
+        IFS=',' read -r -a daynames <<< "$byday"
+        n=0
+        for dayname in "${daynames[@]}";do
+
+          week_numer=${WEEKDIC["$dayname"]}
+          day_inter=$(($week_numer - $WEEKNUMBER_NOW))
+          if [ $day_inter -lt 0 ];then
+            day_inter=$(($day_inter+7))
+          fi
+          if [ $day_inter -gt 2 ];then
+            continue
+          fi
+          day_intervals[$n]=$day_inter
+          n=$(($n+1))
+        done
+        day_intervals=($(printf '%s\n' "${day_intervals[@]}"|sort -d))
+        for(( k=0;k<${#day_intervals[@]};k++)) do
+          event_dates[k]=$(date -d "TODAY ${day_intervals[k]} days" +%Y-%m-%d)
+        done
+      fi
+  esac
+  dels=()
+  for event_date in "${event_dates[@]}";do
+    if [ -n "$until" ]; then
+      getdatediff $event_date ${until:0:8} day
+      if [ $daydiff -lt 0 ];then
+        dels+=$event_date" "
+        continue
+      fi
+    fi
+    if [ -n "$interval" ]; then #间隔
+      getdatediff ${stime:0:8} $event_date week
+      mod=$(($weekdiff % $interval))
+      if [ $mod -ne 0 ];then
+        dels+=" "$event_date
+      fi
+    fi
+  done
+  for del in ${dels[@]}; do
+    event_dates=("${event_dates[@]/$del}")
+  done
+  for event_date in ${event_dates[@]}; do
+    event_time=$event_date" "${stime:9:2}":"${stime:11:2}":"${stime:13:2}
+    getdatediff "$NOW" "$event_time" "miniute"
+    print_datestr $event_date
+    echo $minutediff'@_@'$datestr${stime:9:2}:${stime:11:2} $summary| tr -d '\r'>>$TODO_FILE
+  done
+
+}
+function main()
+{
+  cat /dev/null >$TODO_FILE #clear todo file
+  orage -e $ORAGE_FILE >/dev/null 2>/dev/null
+  sed -i ""s/\r//"" $ORAGE_FILE
+  ind=0;
+  eval $(awk -v ind="$ind" -F':' '/SUMMARY:/ {\
+        print "summarys["ind"]=\x27"substr($2, 0,length($2)-1)"\x27";\
+        print "lines["ind"]="FNR;ind++}' $ORAGE_FILE)
+  dtstarts=($(awk -F';' '/DTSTART/ {print}' $ORAGE_FILE))
+  for(( i=0;i<${#summarys[@]};i++)) do
+    local sl=$((${lines[i]}+1))
+    local el=$((${lines[i]}+5))
+    stime=$(echo ${dtstarts[i]} |awk -F: '{print $2}')
+    rrule=$(sed -n $sl,$el'p' $ORAGE_FILE|awk -F':' '/RRULE:/ {print $2}')
+    if [ -n "$rrule" ]; then
+      get_cycle_date  ${summarys[i]}
+    else
+      event_date=${stime:0:8}
+      getdatediff "$NOW" "$event_date" "day"
+      if [ $daydiff -lt 0 ];then
+        continue
+      fi
+      print_datestr $event_date
+      if [[ ${dtstarts[i]} == *'DATE'* ]]; then #allday event
+        datestr=$datestr"全天"
+        getdatediff "$NOW" "$event_date" "miniute"
+      else
+        event_time=${stime:0:8}" "${stime:9:2}":"${stime:11:2}":"${stime:13:2}
+        getdatediff "$NOW" "$event_time" "miniute"
+        datestr=$datestr${stime:11:2}
+      fi
+      echo $minutediff"@_@"$datestr":"${summarys[i]}| tr -d '\r'>>$TODO_FILE
+    fi
+  done
+  sort -n $TODO_FILE -o $TODO_FILE #sort events by miniute intervals
+  awk -F@_@ '{print $2}' $TODO_FILE|head -n 5
+}
+main "$@"
