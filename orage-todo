@@ -41,9 +41,9 @@ function print_datestr()
   fi
   if [[ ${DTSTART} == *'DATE'* ]]; then #allday event
     datestr=$datestr"All-Day"
-    getdatediff "$NOW" "$event_date" "miniute"
+    getdatediff "$NOW" "$eventday" "miniute"
   else
-    local event_time=${STIME:0:8}" "${STIME:9:2}":"${STIME:11:2}":"${STIME:13:2}
+    local event_time=${eventday:0:8}" "${STIME:9:2}":"${STIME:11:2}":"${STIME:13:2}
     getdatediff "$NOW" "$event_time" "miniute"
     datestr=$datestr${STIME:9:2}":"${STIME:11:2}
   fi
