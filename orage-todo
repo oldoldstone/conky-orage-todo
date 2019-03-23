@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Print the upcoming events of orage in N(N<=7) days.
+# Print the upcoming events of orage in seven days.
 declare -A WEEKDIC FREQDIC
 WEEKDIC=([SU]=0 [MO]=1 [TU]=2 [WE]=3 [TH]=4 [FR]=5 [SA]=6)
 FREQDIC=([DAILY]=day [WEEKLY]=week [MONTHLY]=month [YEARLY]=year [HOURLY]=hour)
@@ -39,12 +39,23 @@ function print_datestr()
   else
     datestr=${eventday:4:2}-${eventday:6:2}" "
   fi
+  if [[ ${DTSTART} == *'DATE'* ]]; then #allday event
+    datestr=$datestr"All-Day"
+    getdatediff "$NOW" "$event_date" "miniute"
+  else
+    local event_time=${STIME:0:8}" "${STIME:9:2}":"${STIME:11:2}":"${STIME:13:2}
+    getdatediff "$NOW" "$event_time" "miniute"
+    datestr=$datestr${STIME:9:2}":"${STIME:11:2}
+  fi
+  echo $minutediff"@_@"$datestr":"${summarys[i]}| tr -d '\r'>>$TODO_FILE
 }
 function cycle_byday_of_week()
 {
+  unset event_dates days
   IFS=',' read -r -a days <<< "$byday"
-  today=$TODAY
+  local today=$TODAY
   local n="1"
+  #echo ${days[@]:0}
   while (( ${today} <= ${TODAY} + ${NDAYS} ));do
     weeknumber=$(date -d "${today}" +%w)
     for day in "${days[@]}";do
@@ -63,21 +74,21 @@ function cycle_byday_of_week()
     if [ -n "$interval" ]; then
       case $freq in
         WEEKLY)
-          day=$(date -d "${stime:0:8}" +%w)
-          week_start=$(date -d "${stime:0:8} -$day days" +%Y%m%d)
+          day=$(date -d "${STIME:0:8}" +%w)
+          week_start=$(date -d "${STIME:0:8} -$day days" +%Y%m%d)
           day=$(date -d "${event_date}" +%w)
           week_end=$(date -d "${event_date} -$day days" +%Y%m%d)
           getdatediff ${week_start} ${week_end} week
           modflag=$(( ${weekdiff} % ${interval} ))
           ;;
         MONTHLY)
-          month_start=$(date -d "${stime:0:8}" +%Y%m01)
+          month_start=$(date -d "${STIME:0:8}" +%Y%m01)
           month_end=$(date -d "${event_date}" +%Y%m01)
           getdatediff ${month_start} ${month_end} month
           modflag=$(( ${monthdiff} % ${interval} ))
           ;;
         YEARLY)
-          year_start=$(date -d "${stime:0:8}" +%Y)
+          year_start=$(date -d "${STIME:0:8}" +%Y)
           year_end=$(date -d "${event_date}" +%Y)
           modflag=$(( (${year_end} - ${year_start}) % ${interval} ))
           ;;
@@ -86,12 +97,8 @@ function cycle_byday_of_week()
         continue
       fi
     fi
-    event_time=$event_date" "${stime:9:2}":"${stime:11:2}":"${stime:13:2}
-    getdatediff "$NOW" "$event_time" "miniute"
     print_datestr $event_date
-    echo $minutediff'@_@'$datestr${stime:9:2}:${stime:11:2}:$summary >>$TODO_FILE
-
-  done
+   done
 
 }
 function cycle_by_time()
@@ -100,10 +107,7 @@ function cycle_by_time()
     if (( ${start_date} >= ${TODAY} )) && \
         (( ${start_date} < ${TODAY} + ${NDAYS} ));then
       event_date=$start_date
-      event_time=$event_date" "${stime:9:2}":"${stime:11:2}":"${stime:13:2}
-      getdatediff "$NOW" "$event_time" "miniute"
       print_datestr $event_date
-      echo $minutediff'@_@'$datestr${stime:9:2}:${stime:11:2}:$summary >>$TODO_FILE
     fi
     start_date=$(date -d "${interval} ${FREQDIC["$freq"]} ${start_date}" +%Y%m%d)
   done
@@ -111,12 +115,12 @@ function cycle_by_time()
 function periodic_event()
 {
   local summary=$(echo $1| tr -d '\r')
-  freq=$(echo $rrule|grep -Eo 'FREQ=[A-Z]*'|sed 's/FREQ=//g')
-  until=$(echo $rrule|grep -Eo 'UNTIL=[0-9T]*'|sed 's/UNTIL=//g')
-  byday=$(echo $rrule|grep -Eo 'BYDAY=[A-Z,]*'|sed 's/BYDAY=//g')
-  count=$(echo $rrule|grep -Eo 'COUNT=[0-9]*'|sed 's/COUNT=//g')
-  interval=$(echo $rrule|grep -Eo 'INTERVAL=[0-9]*'|sed 's/INTERVAL=//g')
-  start_date=${stime:0:8}
+  freq=$(echo $RRULE|grep -Eo 'FREQ=[A-Z]*'|sed 's/FREQ=//g')
+  until=$(echo $RRULE|grep -Eo 'UNTIL=[0-9T]*'|sed 's/UNTIL=//g')
+  byday=$(echo $RRULE|grep -Eo 'BYDAY=[A-Z,]*'|sed 's/BYDAY=//g')
+  count=$(echo $RRULE|grep -Eo 'COUNT=[0-9]*'|sed 's/COUNT=//g')
+  interval=$(echo $RRULE|grep -Eo 'INTERVAL=[0-9]*'|sed 's/INTERVAL=//g')
+  start_date=${STIME:0:8}
   end_date=$(date -d "+${NDAYS} days" +%Y%m%d)
   if [ -n "$interval" ]; then
     interval=$(($interval))
@@ -139,7 +143,6 @@ function periodic_event()
   else
     cycle_by_time $summary
   fi
-
 }
 function main()
 {
@@ -154,26 +157,18 @@ function main()
   for(( i=0;i<${#summarys[@]};i++)) do
     local sl=$((${lines[i]}+1))
     local el=$((${lines[i]}+5))
-    stime=$(echo ${dtstarts[i]} |awk -F: '{print $2}')
-    rrule=$(sed -n $sl,$el'p' $ORAGE_FILE|awk -F':' '/RRULE:/ {print $2}')
-    if [ -n "$rrule" ]; then
+    STIME=$(echo ${dtstarts[i]} |awk -F: '{print $2}')
+    RRULE=$(sed -n $sl,$el'p' $ORAGE_FILE|awk -F':' '/RRULE:/ {print $2}')
+    DTSTART=${dtstarts[i]}
+    if [ -n "$RRULE" ]; then
       periodic_event  ${summarys[i]}
     else
-      event_date=${stime:0:8}
+      event_date=${STIME:0:8}
       getdatediff "$NOW" "$event_date" "day"
       if [ $daydiff -lt 0 ];then
         continue
       fi
       print_datestr $event_date
-      if [[ ${dtstarts[i]} == *'DATE'* ]]; then #allday event
-        datestr=$datestr"全天"
-        getdatediff "$NOW" "$event_date" "miniute"
-      else
-        event_time=${stime:0:8}" "${stime:9:2}":"${stime:11:2}":"${stime:13:2}
-        getdatediff "$NOW" "$event_time" "miniute"
-        datestr=$datestr${stime:9:2}":"${stime:11:2}
-      fi
-      echo $minutediff"@_@"$datestr":"${summarys[i]}| tr -d '\r'>>$TODO_FILE
     fi
   done
   sort -n $TODO_FILE -o $TODO_FILE #sort events by miniute intervals
