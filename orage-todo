@@ -9,27 +9,44 @@ TODO_FILE='/tmp/todo.txt'
 NOW=$(date "+%Y%m%d %H:%M:%S")
 TODAY=$(date +%Y%m%d)
 NDAYS="7"
-function getdatediff()
+function date_diff()
 {
-  local startdate=$(date -d "$1" +%Y-%m-%dT%H:%M:%S)
-  local finaldate=$(date -d "$2" +%Y-%m-%dT%H:%M:%S)
+  local start_date=$1
+  local end_date=$2
+  local epoch_start=$(date -d "${start_date}" +%s)
+  local epoch_end=$(date -d "${end_date}" +%s)
   case $3 in
     miniute)
-      minutediff=$(datediff  $startdate $finaldate -f "%M");;
+      minutediff=$(( (${epoch_end}-${epoch_start})/60 ))
+      ;;
     day)
-      daydiff=$(datediff  $startdate $finaldate -f "%d");;
+      daydiff=$(( (${epoch_end}-${epoch_start})/86400 ))
+      ;;
     week)
-      weekdiff=$(datediff  $startdate $finaldate -f "%w");;
+      local day=$(date -d "${start_date}" +%w)
+      week_start=$(date -d "${start_date} -$day days" +%s)
+      day=$(date -d "${end_date}" +%w)
+      week_end=$(date -d "${end_date} -$day days" +%s)
+      weekdiff=$(( (${week_end}-${week_start})/86400/7 ))
+      ;;
     month)
-      monthdiff=$(datediff  $startdate $finaldate -f "%m");;
+      month_start=$(date -d "${start_date}" +%m)
+      month_end=$(date -d "${end_date}" +%m)
+      year_start=$(date -d "${start_date}" +%Y)
+      year_end=$(date -d "${end_date}" +%Y)
+      monthdiff=$(( (${year_end}-${year_start})*12+${month_end}-${month_start} ))
+      ;;
     year)
-      yeardiff=$(datediff  $startdate $finaldate -f "%y");;
+      year_start=$(date -d "${start_date}" +%Y)
+      year_end=$(date -d "${end_date}" +%Y)
+      yeardiff=$(( ${year_end}-${year_start} ))
+      ;;
   esac
 }
 function print_datestr()
 {
   local eventday=$1
-  getdatediff $TODAY $eventday day
+  date_diff $TODAY $eventday day
   if [ $daydiff -lt 0 ];then
     return
   elif [ $daydiff -eq 0 ];then
@@ -41,13 +58,13 @@ function print_datestr()
   fi
   if [[ ${DTSTART} == *'DATE'* ]]; then #allday event
     datestr=$datestr"All-Day"
-    getdatediff "$NOW" "$eventday" "miniute"
+    date_diff "$NOW" "$eventday" "miniute"
   else
-    local event_time=${eventday:0:8}" "${STIME:9:2}":"${STIME:11:2}":"${STIME:13:2}
-    getdatediff "$NOW" "$event_time" "miniute"
+    event_time=${eventday:0:8}" "${STIME:9:2}":"${STIME:11:2}":"${STIME:13:2}
     datestr=$datestr${STIME:9:2}":"${STIME:11:2}
+    date_diff "$NOW" "$event_time" "miniute"
   fi
-  echo $minutediff"@_@"$datestr":"${summarys[i]}| tr -d '\r'>>$TODO_FILE
+  echo $minutediff"@"$datestr":"${summarys[i]}| tr -d '\r'>>$TODO_FILE
 }
 function cycle_byday_of_week()
 {
@@ -74,17 +91,11 @@ function cycle_byday_of_week()
     if [ -n "$interval" ]; then
       case $freq in
         WEEKLY)
-          day=$(date -d "${STIME:0:8}" +%w)
-          week_start=$(date -d "${STIME:0:8} -$day days" +%Y%m%d)
-          day=$(date -d "${event_date}" +%w)
-          week_end=$(date -d "${event_date} -$day days" +%Y%m%d)
-          getdatediff ${week_start} ${week_end} week
+          date_diff ${STIME:0:8} ${event_date} week
           modflag=$(( ${weekdiff} % ${interval} ))
           ;;
         MONTHLY)
-          month_start=$(date -d "${STIME:0:8}" +%Y%m01)
-          month_end=$(date -d "${event_date}" +%Y%m01)
-          getdatediff ${month_start} ${month_end} month
+          date_diff ${STIME:0:8} ${event_date} month
           modflag=$(( ${monthdiff} % ${interval} ))
           ;;
         YEARLY)
@@ -99,10 +110,12 @@ function cycle_byday_of_week()
     fi
     print_datestr $event_date
    done
-
 }
 function cycle_by_time()
 {
+  if [ "$freq" = "DAILY" ];then
+    start_date=${TODAY}
+  fi
   while (( ${start_date} <= ${end_date} ));do
     if (( ${start_date} >= ${TODAY} )) && \
         (( ${start_date} < ${TODAY} + ${NDAYS} ));then
@@ -149,7 +162,7 @@ function main()
   cat /dev/null >$TODO_FILE #clear todo file
   orage -e $ORAGE_FILE >/dev/null 2>/dev/null
   sed -i ""s/\r//"" $ORAGE_FILE
-  ind=0;
+  local ind=0;
   eval $(awk -v ind="$ind" -F':' '/SUMMARY:/ {\
         print "summarys["ind"]=\x27"substr($2, 0,length($2)-1)"\x27";\
         print "lines["ind"]="FNR;ind++}' $ORAGE_FILE)
@@ -164,7 +177,7 @@ function main()
       periodic_event  ${summarys[i]}
     else
       event_date=${STIME:0:8}
-      getdatediff "$NOW" "$event_date" "day"
+      date_diff "$NOW" "$event_date" "day"
       if [ $daydiff -lt 0 ];then
         continue
       fi
@@ -172,6 +185,6 @@ function main()
     fi
   done
   sort -n $TODO_FILE -o $TODO_FILE #sort events by miniute intervals
-  awk -F@_@ '{print $2}' $TODO_FILE|head -n 5
+  awk -F@ '{print $2}' $TODO_FILE|head -n 15
 }
 main "$@"
