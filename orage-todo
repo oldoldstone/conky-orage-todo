@@ -9,6 +9,7 @@ TODO_FILE='/tmp/todo.txt'
 NOW=$(date "+%Y%m%d %H:%M:%S")
 TODAY=$(date +%Y%m%d)
 NDAYS="7"
+ENDDAY=$(date -d "7 day" +%Y%m%d)
 function date_diff()
 {
   local start_date=$1
@@ -73,7 +74,7 @@ function cycle_byday_of_week()
   local today=$TODAY
   local n="1"
   #echo ${days[@]:0}
-  while (( ${today} <= ${TODAY} + ${NDAYS} ));do
+  while (( ${today} <= ${ENDDAY} ));do
     weeknumber=$(date -d "${today}" +%w)
     for day in "${days[@]}";do
         if (( ${WEEKDIC[$day]} == ${weeknumber} ));then
@@ -84,7 +85,7 @@ function cycle_byday_of_week()
     today=$(date -d "1 day ${today}" +%Y%m%d)
   done
   for event_date in "${event_dates[@]}";do
-    if (( ${event_date} < ${TODAY} ))||(( ${event_date} > ${TODAY}+${NDAYS} )) \
+    if (( ${event_date} < ${TODAY} ))||(( ${event_date} > ${ENDDAY} )) \
        ||(( ${event_date} > ${end_date} ));  then
       continue
     fi
@@ -118,7 +119,7 @@ function cycle_by_time()
   fi
   while (( ${start_date} <= ${end_date} ));do
     if (( ${start_date} >= ${TODAY} )) && \
-        (( ${start_date} < ${TODAY} + ${NDAYS} ));then
+       (( ${start_date} < ${ENDDAY} ));then
       event_date=$start_date
       print_datestr $event_date
     fi
@@ -134,7 +135,7 @@ function periodic_event()
   count=$(echo $RRULE|grep -Eo 'COUNT=[0-9]*'|sed 's/COUNT=//g')
   interval=$(echo $RRULE|grep -Eo 'INTERVAL=[0-9]*'|sed 's/INTERVAL=//g')
   start_date=${STIME:0:8}
-  end_date=$(date -d "+${NDAYS} days" +%Y%m%d)
+  end_date=${ENDDAY}
   if [ -n "$interval" ]; then
     interval=$(($interval))
   else
